@@ -19,6 +19,7 @@ import numpy as np
 
 from tqdm import tqdm
 
+import pdb
 
 @partial(jax.jit, static_argnums=(0,))
 @partial(jax.vmap, in_axes=(None, 0, 0))
@@ -47,7 +48,11 @@ def affinize(f, s, u):
     """
     # PART (b) ################################################################
     # INSTRUCTIONS: Use JAX to affinize `f` around `(s, u)` in two lines.
-    raise NotImplementedError()
+    A = jax.jacobian(f,0)(jnp.array(s),jnp.array(u))
+    B = jax.jacobian(f,1)(jnp.array(s),jnp.array(u))
+    c = f(s,u) - A@s - B@u
+    
+    # raise NotImplementedError()
     # END PART (b) ############################################################
     return A, B, c
 
@@ -170,9 +175,18 @@ def scp_iteration(f, s0, s_goal, s_prev, u_prev, N, P, Q, R, u_max, ρ):
 
     # PART (c) ################################################################
     # INSTRUCTIONS: Construct the convex SCP sub-problem.
-    objective = 0.0
+    objective = cvx.sum([cvx.quad_form(s_cvx[k]-s_goal, Q) for k in range(N)] + [cvx.quad_form(u_cvx[k], R) for k in range(N)]) + cvx.quad_form(s_cvx[-1]-s_goal, P)
     constraints = []
-    raise NotImplementedError()
+    constraints.append(s_cvx[0]==s0)
+    constraints.append(u_cvx <= u_max)
+    constraints.append(u_cvx >= -u_max)
+    for k in range(N):
+        constraints.append(s_cvx[k+1] == A[k]@s_cvx[k] + B[k]@u_cvx[k] + c[k])
+        constraints.append(cvx.norm_inf(s_cvx[k]-s_prev[k]) <= ρ)
+        constraints.append(cvx.norm_inf(u_cvx[k]-u_prev[k]) <= ρ)
+
+    # raise NotImplementedError()
+    
     # END PART (c) ############################################################
 
     prob = cvx.Problem(cvx.Minimize(objective), constraints)
@@ -226,15 +240,15 @@ m = 1  # control dimension
 s_goal = np.array([0, np.pi, 0, 0])  # desired upright pendulum state
 s0 = np.array([0, 0, 0, 0])  # initial downright pendulum state
 dt = 0.1  # discrete time resolution
-T = 10.0  # total simulation time
+T = 15.0  # total simulation time
 P = 1e3 * np.eye(n)  # terminal state cost matrix
 Q = np.diag([1e-2, 1.0, 1e-3, 1e-3])  # state cost matrix
 R = 1e-3 * np.eye(m)  # control cost matrix
 ρ = 1.0  # trust region parameter
-u_max = 8.0  # control effort bound
+u_max = 12.0  # control effort bound
 eps = 5e-1  # convergence tolerance
 max_iters = 100  # maximum number of SCP iterations
-animate = False  # flag for animation
+animate = True  # flag for animation
 
 # Initialize the discrete-time dynamics
 fd = jax.jit(discretize(cartpole, dt))
