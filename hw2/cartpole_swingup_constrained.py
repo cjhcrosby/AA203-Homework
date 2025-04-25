@@ -240,15 +240,15 @@ m = 1  # control dimension
 s_goal = np.array([0, np.pi, 0, 0])  # desired upright pendulum state
 s0 = np.array([0, 0, 0, 0])  # initial downright pendulum state
 dt = 0.1  # discrete time resolution
-T = 15.0  # total simulation time
+T = 10.0  # total simulation time
 P = 1e3 * np.eye(n)  # terminal state cost matrix
 Q = np.diag([1e-2, 1.0, 1e-3, 1e-3])  # state cost matrix
 R = 1e-3 * np.eye(m)  # control cost matrix
 ρ = 1.0  # trust region parameter
-u_max = 12.0  # control effort bound
+u_max = 8.0  # control effort bound
 eps = 5e-1  # convergence tolerance
 max_iters = 100  # maximum number of SCP iterations
-animate = True  # flag for animation
+animate = False  # flag for animation
 
 # Initialize the discrete-time dynamics
 fd = jax.jit(discretize(cartpole, dt))
