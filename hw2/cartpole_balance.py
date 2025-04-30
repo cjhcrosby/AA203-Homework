@@ -60,8 +60,13 @@ def reference(t: float) -> np.ndarray:
 
     # PART (d) ##################################################
     # INSTRUCTIONS: Compute the reference state for a given time
-    raise NotImplementedError()
+    x_bar = a * np.sin(2*np.pi*t/T)
+    theta_bar = np.pi 
+    dx_bar = 0.0
+    # dx_bar =a*np.cos(2*np.pi*t/T)*2*np.pi/T
+    s = np.array([x_bar, theta_bar, dx_bar, 0.0])
     # END PART (d) ##############################################
+    return s
 
 
 def ricatti_recursion(
@@ -85,9 +90,14 @@ def ricatti_recursion(
     for i in range(max_iters):
         # PART (b) ##################################################
         # INSTRUCTIONS: Apply the Ricatti equation until convergence
-        K = NotImplemented
-        raise NotImplementedError()
+        K = -np.linalg.inv(R+B.T @ P_prev @ B) @ B.T @ P_prev @ A
+        P = Q + A.T @ P_prev @ (A+B@K)
+        # breakpoint()
         # END PART (b) ##############################################
+        if np.max(np.abs(P - P_prev)) < eps:
+            converged = True
+            break
+        P_prev = P
     if not converged:
         raise RuntimeError("Ricatti recursion did not converge!")
     print("K:", K)
@@ -119,9 +129,13 @@ def simulate(
     # PART (c) ##################################################
     # INSTRUCTIONS: Complete the function to simulate the cartpole system
     # Hint: use the cartpole wrapper above with odeint
-    s = NotImplemented
-    u = NotImplemented
-    raise NotImplementedError()
+    N = len(t)
+    s = np.zeros((N,n))
+    u = np.zeros((N,m))
+    s[0] = s0
+    for k in range(N-1):
+        u[k] = K @ (s[k] - s_ref[k]) + u_ref
+        s[k+1] = odeint(cartpole_wrapper, s[k], t[k:k+2], (u[k],))[-1]
     # END PART (c) ##############################################
     return s, u
 
@@ -136,8 +150,27 @@ def compute_lti_matrices() -> tuple[np.ndarray, np.ndarray]:
     """
     # PART (a) ##################################################
     # INSTRUCTIONS: Construct the A and B matrices
-    A = NotImplemented
-    B = NotImplemented
+    A = np.zeros((n, n))
+    B = np.zeros((n, m))
+    
+    A = np.eye(n) + dt*np.array(
+        [
+            [0,0,1,0],
+            [0,0,0,1],
+            [0, mp*g/mc, 0, 0],
+            [0, (mc+mp)*g/(mc*L),0,0]
+        ]
+    )
+
+    B = dt*np.array(
+        [
+            [0],
+            [0],
+            [1/mc],
+            [1/(mc*L)]
+        ]
+    )
+
     # END PART (a) ##############################################
     return A, B
 
@@ -155,7 +188,7 @@ def plot_state_and_control_history(
         name (str): Filename prefix for saving figures
     """
     fig, axes = plt.subplots(1, n + m, dpi=150, figsize=(15, 2))
-    plt.subplots_adjust(wspace=0.35)
+    plt.subplots_adjust(wspace=0.8)
     labels_s = (r"$x(t)$", r"$\theta(t)$", r"$\dot{x}(t)$", r"$\dot{\theta}(t)$")
     labels_u = (r"$u(t)$",)
     for i in range(n):
@@ -181,7 +214,7 @@ def main():
     A, B = compute_lti_matrices()
 
     # Part B
-    Q = np.eye(n)  # state cost matrix
+    Q = 10*np.eye(n)  # state cost matrix
     R = np.eye(m)  # control cost matrix
     K = ricatti_recursion(A, B, Q, R)
 

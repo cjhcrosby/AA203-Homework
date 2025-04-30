@@ -247,7 +247,7 @@ R = 1e-3 * np.eye(m)  # control cost matrix
 u_max = 8.0  # control effort bound
 eps = 5e-1  # convergence tolerance
 max_iters = 100  # maximum number of SCP iterations
-animate = True  # flag for animation
+animate = False  # flag for animation
 
 # Initialize the discrete-time dynamics
 fd = jax.jit(discretize(cartpole, dt))
