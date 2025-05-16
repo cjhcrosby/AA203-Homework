@@ -14,6 +14,8 @@ import matplotlib.animation as animation
 
 
 def animate_planar_quad(t, x, y, θ):
+    from starter_hj_reachability import PlanarQuadrotor
+
     """Animate the planar quadrotor system from given position data.
 
     All arguments are assumed to be 1-D NumPy arrays, where `x`, `y`, and `θ`
@@ -42,6 +44,33 @@ def animate_planar_quad(t, x, y, θ):
     x_pad = (rod_width + prop_width) / 2 + 0.1 * (x_max - x_min)
     y_min, y_max = np.min(y), np.max(y)
     y_pad = (rod_width + prop_width) / 2 + 0.1 * (y_max - y_min)
+    # plot dashed green line at y bounds of target set PlanarQuadrotor.target_set_hull[0]
+    ax.plot(
+        [x_min - x_pad, x_max + x_pad],
+        [PlanarQuadrotor.target_set_hull[0][0], PlanarQuadrotor.target_set_hull[0][0]],
+        "--",
+        color="tab:green",
+    )
+    ax.plot(
+        [x_min - x_pad, x_max + x_pad],
+        [PlanarQuadrotor.target_set_hull[0][1], PlanarQuadrotor.target_set_hull[0][1]],
+        "--",
+        color="tab:green",
+    )
+
+    ax.plot(
+        [x_min - x_pad, x_max + x_pad],
+        [PlanarQuadrotor.envelope_set_hull[0][0], PlanarQuadrotor.envelope_set_hull[0][0]],
+        "--",
+        color="tab:red",
+    )
+    ax.plot(
+        [x_min - x_pad, x_max + x_pad],
+        [PlanarQuadrotor.envelope_set_hull[0][1], PlanarQuadrotor.envelope_set_hull[0][1]],
+        "--",
+        color="tab:red",
+    )
+
     ax.set_xlim([x_min - x_pad, x_max + x_pad])
     ax.set_ylim([y_min - y_pad, y_max + y_pad])
     ax.set_aspect(1.0)

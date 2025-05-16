@@ -18,16 +18,16 @@ from tqdm.auto import tqdm
 
 
 def do_mpc(
-    x0: np.ndarray,
-    A: np.ndarray,
-    B: np.ndarray,
-    P: np.ndarray,
-    Q: np.ndarray,
-    R: np.ndarray,
-    N: int,
-    rx: float,
-    ru: float,
-    rf: float,
+    x0: np.ndarray, # initial state
+    A: np.ndarray,  # system dynamics matrix
+    B: np.ndarray,  # control input matrix
+    P: np.ndarray,  # terminal cost matrix
+    Q: np.ndarray,  # state cost matrix
+    R: np.ndarray,  # control cost matrix
+    N: int,         # prediction horizon
+    rx: float,      # initial state inf-norm constraint
+    ru: float,      # initial control inf-norm constraint
+    rf: float,      # terminal state inf-norm constraint
 ) -> tuple[np.ndarray, np.ndarray, str]:
     """Solve the MPC problem starting at state `x0`."""
     n, m = Q.shape[0], R.shape[0]
@@ -37,9 +37,19 @@ def do_mpc(
     # PART (a): YOUR CODE BELOW ###############################################
     # INSTRUCTIONS: Construct and solve the MPC problem using CVXPY.
 
-    cost = 0.0
-    constraints = []
-
+    cost = 0.0 # initialize cost
+    constraints = [] # initialize constraints list
+    cost += cvx.quad_form(x_cvx[-1], P) # terminal cost
+    constraints.append(x_cvx[0] == x0) # initial condition constraint
+    constraints.append(cvx.norm(x_cvx[0], "inf") <= rx) # intial state inf norm constraint
+    constraints.append(cvx.norm(u_cvx[0], "inf") <= ru) # initial control inf norm constraint
+    constraints.append(cvx.norm(x_cvx[-1], "inf") <= rf) # terminal state inf norm constraint
+    for k in range(N): # do the sum term
+        cost += cvx.quad_form(x_cvx[k], Q) + cvx.quad_form(u_cvx[k], R) # step-wise cost argument
+        constraints.append(x_cvx[k + 1] == A @ x_cvx[k] + B @ u_cvx[k]) # dynamics constraint
+        constraints.append(cvx.norm(x_cvx[k], "inf") <= rx) # state inf norm constraint
+        constraints.append(cvx.norm(u_cvx[k], "inf") <= ru) # control inf norm constraint
+        
     # END PART (a) ############################################################
 
     prob = cvx.Problem(cvx.Minimize(cost), constraints)
@@ -77,10 +87,22 @@ def compute_roa(
             #               infeasible or the state has converged close enough
             #               to the origin. If the state converges, flag the
             #               corresponding entry of `roa` with a value of `1`.
-
+            x_mpc = np.zeros((max_steps, N + 1, n))
+            u_mpc = np.zeros((max_steps, N, m))
+            for k in range(max_steps):
+                x_mpc[k], u_mpc[k], status = do_mpc(x, A, B, P, Q, R, N, rx, ru, rf)
+                # breakpoint()
+                if status == "infeasible":
+                    x_mpc = x_mpc[:t]
+                    u_mpc = u_mpc[:t]
+                    break
+                
+                x = A @ x.copy() + B @ u_mpc[k, 0, :]
+                # breakpoint()
+                if np.all(np.max(np.abs(x)) < tol):
+                    roa[i, j] = 1.0 if status != "feasible" else 0.0
             # END PART (b) ####################################################
     return roa
-
 
 # Part (a): Simulate and plot trajectories of the closed-loop system
 n, m = 2, 1
@@ -98,10 +120,13 @@ rf = np.inf
 Ps = (np.eye(n), P_dare)
 titles = (r"$P = I$", r"$P = P_\mathrm{DARE}$")
 x0s = (np.array([-4.5, 2.0]), np.array([-4.5, 3.0]))
-
+# x0s = (np.array([-1.5, 1.0]), np.array([-2.5, 0.5]), np.array([-1, 0.5]))
+colors = ("tab:blue", "tab:orange")
 fig, ax = plt.subplots(2, len(Ps), dpi=150, figsize=(10, 8), sharex="row", sharey="row")
 for i, (P, title) in enumerate(zip(Ps, titles)):
+    j = 0
     for x0 in x0s:
+        
         x = np.copy(x0)
         x_mpc = np.zeros((T, N + 1, n))
         u_mpc = np.zeros((T, N, m))
@@ -113,8 +138,9 @@ for i, (P, title) in enumerate(zip(Ps, titles)):
                 break
             x = A @ x + B @ u_mpc[t, 0, :]
             ax[0, i].plot(x_mpc[t, :, 0], x_mpc[t, :, 1], "--*", color="k")
-        ax[0, i].plot(x_mpc[:, 0, 0], x_mpc[:, 0, 1], "-o")
-        ax[1, i].plot(u_mpc[:, 0], "-o")
+        ax[0, i].plot(x_mpc[:, 0, 0], x_mpc[:, 0, 1], "-o", color=colors[j])
+        ax[1, i].plot(u_mpc[:, 0], "-o", color=colors[j])
+        j += 1
     ax[0, i].set_title(title)
     ax[0, i].set_xlabel(r"$x_{k,1}$")
     ax[1, i].set_xlabel(r"$k$")
@@ -125,25 +151,28 @@ plt.show()
 
 
 # Part (b): Compute and plot regions of attraction for different MPC parameters
-print("Computing regions of attraction (this may take a while) ... ", flush=True)
-Ns = (2, 6)
-rfs = (0.0, np.inf)
-fig, axes = plt.subplots(
-    len(Ns), len(rfs), dpi=150, figsize=(10, 10), sharex=True, sharey=True
-)
-prog_bar = tqdm(product(Ns, rfs), total=len(Ns) * len(rfs))
-for flat_idx, (N, rf) in enumerate(prog_bar):
-    i, j = np.unravel_index(flat_idx, (len(Ns), len(rfs)))
-    roa = compute_roa(A, B, P_dare, Q, R, N, rx, ru, rf, grid_dim=30)
-    axes[i, j].imshow(
-        roa.T, origin="lower", extent=[-rx, rx, -rx, rx], interpolation="none"
+roas = True
+if roas:
+    print("Computing regions of attraction (this may take a while) ... ", flush=True)
+    Ns = (2, 6)
+    rfs = (0.0, np.inf)
+    fig, axes = plt.subplots(
+        len(Ns), len(rfs), dpi=150, figsize=(10, 10), sharex=True, sharey=True
     )
-    axes[i, j].set_title(
-        r"$N = {},\ r_f = $".format(N) + (r"$\infty$" if rf == np.inf else str(rf))
-    )
-for ax in axes[-1, :]:
-    ax.set_xlabel(r"$x_{0,1}$")
-for ax in axes[:, 0]:
-    ax.set_ylabel(r"$x_{0,2}$")
-fig.savefig("mpc_feasibility_roa.png", bbox_inches="tight")
-plt.show()
+    prog_bar = tqdm(product(Ns, rfs), total=len(Ns) * len(rfs))
+    for flat_idx, (N, rf) in enumerate(prog_bar):
+        i, j = np.unravel_index(flat_idx, (len(Ns), len(rfs)))
+        roa = compute_roa(A, B, P_dare, Q, R, N, rx, ru, rf, grid_dim=30)
+        axes[i, j].imshow(
+            roa.T, origin="lower", extent=[-rx, rx, -rx, rx], interpolation="none"
+        )
+        axes[i, j].set_title(
+            r"$N = {},\ r_f = $".format(N) + (r"$\infty$" if rf == np.inf else str(rf))
+        )
+    for ax in axes[-1, :]:
+        ax.set_xlabel(r"$x_{0,1}$")
+    for ax in axes[:, 0]:
+        ax.set_ylabel(r"$x_{0,2}$")
+
+    fig.savefig("mpc_feasibility_roa.png", bbox_inches="tight")
+    plt.show()

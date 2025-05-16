@@ -39,14 +39,14 @@ def linearize(f, s, u):
     """
     # WRITE YOUR CODE BELOW ###################################################
     # INSTRUCTIONS: Use JAX to compute `A` and `B` in one line.
-    raise NotImplementedError()
+    A, B = jax.jacobian(f, argnums=(0, 1))(s, u)
     ###########################################################################
     return A, B
 
 
-def ilqr(f, s0, s_goal, N, Q, R, QN, eps=1e-3, max_iters=1000):
+def ilqr(f, s0, s_goal, N, Q, R, QN, eps=1e-4, max_iters=100000):
     """Compute the iLQR set-point tracking solution.
-
+`
     Arguments
     ---------
     f : callable
@@ -105,17 +105,123 @@ def ilqr(f, s0, s_goal, N, Q, R, QN, eps=1e-3, max_iters=1000):
 
     # iLQR loop
     converged = False
+    count = 0
     for _ in range(max_iters):
+        count += 1
         # Linearize the dynamics at each step `k` of `(s_bar, u_bar)`
         A, B = jax.vmap(linearize, in_axes=(None, 0, 0))(f, s_bar[:-1], u_bar)
         A, B = np.array(A), np.array(B)
 
         # PART (c) ############################################################
         # INSTRUCTIONS: Update `Y`, `y`, `ds`, `du`, `s_bar`, and `u_bar`.
-        raise NotImplementedError()
+        # raise NotImplementedError()
+
+        # # From the lectur notes:
+        # V - value function
+        # V_x - gradient
+        # V_xx - Hessian
+
+        qN = 2 * QN @ (s_bar[-1] - s_goal)
+        # value function and gradients
+        V = np.zeros((N + 1, 1))
+        V_x = np.zeros((N + 1, n))
+        V_xx = np.zeros((N + 1, n, n))
+
+        # cost function for nominal trajectory
+        c_k = np.zeros((N, 1)) # initialize stage wise cost
+        c_x = np.zeros((N, n)) 
+        c_u = np.zeros((N, m))
+        c_xx = np.zeros((N, n,n))
+        c_uu = np.zeros((N, m,m))
+        c_ux = np.zeros((N, m,n))
+
+        # linear terms
+        qk = np.zeros((N + 1, n))
+        rk = np.zeros((N + 1, m))
+
+        # c_k[-1] = 1/2 * (s_bar[-1] - s_goal).T @ QN @ (s_bar[-1] - s_goal)
+        V[-1] = 1/2 * (s_bar[-1] - s_goal).T @ QN @ (s_bar[-1] - s_goal) 
+        V_x[-1] = QN @ (s_bar[-1] - s_goal)
+        V_xx[-1] = QN # final Hessian of cost-to-go
+        
+
+        # Q-values
+        Q_k = np.zeros((N, 1)) 
+        Q_x = np.zeros((N, n)) 
+        Q_u = np.zeros((N, m)) 
+        Q_xx = np.zeros((N,  n,n))
+        Q_uu = np.zeros((N, m,m))
+        Q_ux = np.zeros((N, m,n))
+
+        # Backward pass
+        for k in range(N-1, -1, -1):
+            # Linear terms
+            qk[k]  = 2 * Q.T @ (s_bar[k] - s_goal) 
+            rk[k] = 2 * R.T @ u_bar[k]
+
+            # Stage-wise costs
+            c_k[k] = 1/2 * (s_bar[k] - s_goal).T @ Q @ (s_bar[k] - s_goal) + 1/2 * u_bar[k].T @ R @ u_bar[k] # cost function c_k
+            c_x[k] = Q.T @ (s_bar[k] - s_goal) 
+            c_u[k] = R.T @ u_bar[k]
+            c_xx[k] = Q
+            c_uu[k] = R
+            c_ux[k] = np.zeros((m,n))
+
+            # Q-value matrices
+            Q_k[k] = c_k[k] + V[k + 1] 
+            Q_x[k] = c_x[k] + A[k].T @ V_x[k+1]
+            Q_u[k] = c_u[k] + B[k].T @ V_x[k+1]
+            Q_xx[k] = c_xx[k] + A[k].T @ V_xx[k+1] @ A[k]
+            Q_uu[k] = c_uu[k] + B[k].T @ V_xx[k+1] @ B[k]
+            Q_ux[k] = c_ux[k] + B[k].T @ V_xx[k+1] @ A[k]
+
+            # y[k] = -np.linalg.inv(Q_uu[k]) @ Q_u[k]
+            # Y[k] = -np.linalg.inv(Q_uu[k]) @ Q_ux[k]
+            y[k] = -np.linalg.solve(Q_uu[k], Q_u[k])
+            Y[k] = -np.linalg.solve(Q_uu[k], Q_ux[k])
+
+            # # value function updates
+            V[k] = Q_k[k] - 1/2 * y[k].T @ Q_uu[k] @ y[k]
+            V_x[k] = Q_x[k] - Y[k].T @ Q_uu[k] @ y[k]
+            V_xx[k] = Q_xx[k] - Y[k].T @ Q_uu[k] @ Y[k]
+
+            # value function from Yuval's paper, same amount of iterations!
+            # V[k] = 1/2 * y[k].T @ Q_uu[k] @ y[k] + y[k].T @ Q_u[k]
+            # V_x[k] = Q_x[k] + Y[k].T @ Q_uu[k] @ y[k] + Y[k].T @ Q_u[k] + Q_ux[k].T @ y[k]
+            # V_xx[k] = Q_xx[k] + Y[k].T @ Q_uu[k] @ Y[k] + Y[k].T @ Q_ux[k] +Q_ux[k].T @ Y[k]
+            
+        # Forward pass
+        s_bar_new = s_bar.copy()
+        u_bar_new = u_bar.copy()
+        # s_bar_new[0] = s0
+        for k in range(N):
+            ds[k] = s_bar_new[k] - s_bar[k]
+            du[k] = y[k] + Y[k] @ ds[k]
+
+            u_bar_new[k] = u_bar[k] + du[k]
+            s_bar_new[k+1] = f(s_bar_new[k], u_bar_new[k])
+            
+        # print(f"max du: {np.max(np.abs(du))}")
+        # print(f"max ds: {np.max(np.abs(ds))}")
+        # print(f"max Y: {np.max(np.abs(Y))}")
+        # print(f"max y: {np.max(np.abs(y))}")
+        # print(f"max V: {np.max(np.abs(V))}")
+        # print(f"max V_x: {np.max(np.abs(V_x))}")
+        # print(f"max V_xx: {np.max(np.abs(V_xx))}")
+        # print(f"min Q_uu: {np.min(np.abs(Q_uu))}")
+        # # breakpoint()
+
+        u_bar = u_bar_new.copy()
+        s_bar = s_bar_new.copy()
+            
         #######################################################################
 
         if np.max(np.abs(du)) < eps:
+            print(f"wahoo! iLQR converged after {count} iterations")
+            print(f"maximum state deviation: {np.max(np.abs(ds))}")
+            print(f"maximum control deviation: {np.max(np.abs(du))}")
+            print(f"gain Y : {Y[-1]}")
+            print(f"offset y : {y[-1]}")
             converged = True
             break
     if not converged:
@@ -155,7 +261,7 @@ s0 = np.array([0.0, 0.0, 0.0, 0.0])  # initial state
 s_goal = np.array([0.0, np.pi, 0.0, 0.0])  # goal state
 T = 10.0  # simulation time
 dt = 0.1  # sampling time
-animate = False  # flag for animation
+animate = True  # flag for animation
 closed_loop = False  # flag for closed-loop control
 
 # Initialize continuous-time and discretized dynamics
@@ -181,11 +287,11 @@ for k in range(N):
     # INSTRUCTIONS: Compute either the closed-loop or open-loop value of
     # `u[k]`, depending on the Boolean flag `closed_loop`.
     if closed_loop:
-        u[k] = 0.0
-        raise NotImplementedError()
+        u[k] = u_bar[k] + y[k] + Y[k] @ (s[k] - s_bar[k])
+        # raise NotImplementedError()
     else:  # do open-loop control
-        u[k] = 0.0
-        raise NotImplementedError()
+        u[k] = u_bar[k]
+        # raise NotImplementedError()
     ###########################################################################
     s[k + 1] = odeint(lambda s, t: f(s, u[k]), s[k], t[k : k + 2])[1]
 print("done! ({:.2f} s)".format(time.time() - start), flush=True)

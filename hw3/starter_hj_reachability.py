@@ -81,7 +81,16 @@ class PlanarQuadrotor:
         # PART (a): WRITE YOUR CODE BELOW ###############################################
         # You may find `jnp.where` to be useful; see corresponding numpy docstring:
         # https://numpy.org/doc/stable/reference/generated/numpy.where.html
-        raise NotImplementedError
+        y, v_y, phi, omega = state
+        beta_T1 = grad_value[1] * jnp.cos(phi) / self.m - grad_value[3] * self.l / self.Iyy
+        beta_T2 = grad_value[1] * jnp.cos(phi) / self.m + grad_value[3] * self.l / self.Iyy
+
+        T_1 = jnp.where(beta_T1 > 0, self.min_thrust_per_prop, self.max_thrust_per_prop)
+        T_2 = jnp.where(beta_T2 > 0, self.min_thrust_per_prop, self.max_thrust_per_prop)
+        u_optimal = jnp.array([T_1, T_2])
+        return u_optimal
+
+
         #################################################################################
 
     def hamiltonian(self, state, time, value, grad_value):
@@ -112,6 +121,23 @@ class PlanarQuadrotor:
             ]
         )
 
+    target_set_hull = jnp.array(
+        [
+            [3., 7.],
+            [-1., 1.],
+            [-jnp.pi/12, jnp.pi/12],
+            [-1., 1.]
+        ]
+    )  # convex hull of the target set given in the problem 
+
+    envelope_set_hull = jnp.array(
+        [
+            [1., 9.],
+            [-6.,6.],
+            [-float('inf'), float('inf')], #TBD replace this with high bound if inf doesnt work
+            [-8, 8]
+        ]
+    )  # convex hull of the envelope set given in the problem
 
 def target_set(state):
     """A real-valued function such that the zero-sublevel set is the target set.
@@ -123,7 +149,72 @@ def target_set(state):
         A scalar, nonpositive iff the state is in the target set.
     """
     # PART (b): WRITE YOUR CODE BELOW ###############################################
-    raise NotImplementedError
+    
+    y, v_y, phi, omega = state
+    # h_y is signed distance to target set boundary along 0 dimension
+    h_y = jnp.where(
+        jnp.logical_and(
+            y > PlanarQuadrotor.target_set_hull[0, 0], y < PlanarQuadrotor.target_set_hull[0, 1] # if it is in the target set
+        ),
+        -jnp.minimum(
+            jnp.abs(y - PlanarQuadrotor.target_set_hull[0, 0]),
+            jnp.abs(y - PlanarQuadrotor.target_set_hull[0, 1]),
+        ), # return negative infimum
+            # else
+        jnp.minimum(
+            jnp.abs(y - PlanarQuadrotor.target_set_hull[0, 0]),
+            jnp.abs(y - PlanarQuadrotor.target_set_hull[0, 1]),
+        ) # return positive infimum
+    )
+
+    # h_vy is signed distance to target set boundary along 1 dimension
+    h_vy = jnp.where(
+        jnp.logical_and(
+            v_y > PlanarQuadrotor.target_set_hull[1, 0], v_y < PlanarQuadrotor.target_set_hull[1, 1]
+        ),
+        -jnp.minimum(
+            jnp.abs(v_y - PlanarQuadrotor.target_set_hull[1, 0]),
+            jnp.abs(v_y - PlanarQuadrotor.target_set_hull[1, 1]),
+        ), 
+        jnp.minimum(
+            jnp.abs(v_y - PlanarQuadrotor.target_set_hull[1, 0]),
+            jnp.abs(v_y - PlanarQuadrotor.target_set_hull[1, 1]),
+        ) #
+    )
+
+    # h_phi is signed distance to target set boundary along 2 dimension
+    h_phi = jnp.where(
+        jnp.logical_and(
+            phi > PlanarQuadrotor.target_set_hull[2, 0], phi < PlanarQuadrotor.target_set_hull[2, 1] 
+        ),
+        -jnp.minimum(
+            jnp.abs(phi - PlanarQuadrotor.target_set_hull[2, 0]),
+            jnp.abs(phi - PlanarQuadrotor.target_set_hull[2, 1]),
+        ), 
+        jnp.minimum(
+            jnp.abs(phi - PlanarQuadrotor.target_set_hull[2, 0]),
+            jnp.abs(phi - PlanarQuadrotor.target_set_hull[2, 1]),
+        )
+    )
+
+    # h_omega is signed distance to target set boundary along 3 dimension
+    h_omega = jnp.where(
+        jnp.logical_and(
+            omega > PlanarQuadrotor.target_set_hull[3, 0], omega < PlanarQuadrotor.target_set_hull[3, 1]
+        ),
+        -jnp.minimum(
+            jnp.abs(omega - PlanarQuadrotor.target_set_hull[3, 0]),
+            jnp.abs(omega - PlanarQuadrotor.target_set_hull[3, 1]),
+        ),
+        jnp.minimum(
+            jnp.abs(omega - PlanarQuadrotor.target_set_hull[3, 0]),
+            jnp.abs(omega - PlanarQuadrotor.target_set_hull[3, 1]),
+        )
+    )
+    # h is the maximum of all the signed distances
+    h = jnp.maximum(h_y, jnp.maximum(h_vy, jnp.maximum(h_phi, h_omega)))
+    # print(f"h_y: {h_y}, h_vy: {h_vy}, h_phi: {h_phi}, h_omega: {h_omega}, h: {h}")
+    return h
     #################################################################################
 
 
@@ -137,7 +228,71 @@ def envelope_set(state):
         A scalar, nonpositive iff the state is in the operational envelope.
     """
     # PART (c): WRITE YOUR CODE BELOW ###############################################
-    raise NotImplementedError
+    y, v_y, phi, omega = state
+    # e_y is signed distance to envelope set boundary along 0 dimension
+    e_y = jnp.where(
+        jnp.logical_and(
+            y > PlanarQuadrotor.envelope_set_hull[0, 0], y < PlanarQuadrotor.envelope_set_hull[0, 1] # if it is in the target set
+        ),
+        -jnp.minimum(
+            jnp.abs(y - PlanarQuadrotor.envelope_set_hull[0, 0]),
+            jnp.abs(y - PlanarQuadrotor.envelope_set_hull[0, 1]),
+        ), # return negative infimum
+            # else
+        jnp.minimum(
+            jnp.abs(y - PlanarQuadrotor.envelope_set_hull[0, 0]),
+            jnp.abs(y - PlanarQuadrotor.envelope_set_hull[0, 1]),
+        ) # return positive infimum
+    )
+
+    # e_vy is signed distance to envelope set boundary along 1 dimension
+    e_vy = jnp.where(
+        jnp.logical_and(
+            v_y > PlanarQuadrotor.envelope_set_hull[1, 0], v_y < PlanarQuadrotor.envelope_set_hull[1, 1]
+        ),
+        -jnp.minimum(
+            jnp.abs(v_y - PlanarQuadrotor.envelope_set_hull[1, 0]),
+            jnp.abs(v_y - PlanarQuadrotor.envelope_set_hull[1, 1]),
+        ), 
+        jnp.minimum(
+            jnp.abs(v_y - PlanarQuadrotor.envelope_set_hull[1, 0]),
+            jnp.abs(v_y - PlanarQuadrotor.envelope_set_hull[1, 1]),
+        ) #
+    )
+
+    # e_phi is signed distance to envelope set boundary along 2 dimension
+    e_phi = jnp.where(
+        jnp.logical_and(
+            phi > PlanarQuadrotor.envelope_set_hull[2, 0], phi < PlanarQuadrotor.envelope_set_hull[2, 1] 
+        ),
+        -jnp.minimum(
+            jnp.abs(phi - PlanarQuadrotor.envelope_set_hull[2, 0]),
+            jnp.abs(phi - PlanarQuadrotor.envelope_set_hull[2, 1]),
+        ), 
+        jnp.minimum(
+            jnp.abs(phi - PlanarQuadrotor.envelope_set_hull[2, 0]),
+            jnp.abs(phi - PlanarQuadrotor.envelope_set_hull[2, 1]),
+        )
+    )
+
+    # e_omega is signed distance to envelope set boundary along 3 dimension
+    e_omega = jnp.where(
+        jnp.logical_and(
+            omega > PlanarQuadrotor.envelope_set_hull[3, 0], omega < PlanarQuadrotor.envelope_set_hull[3, 1]
+        ),
+        -jnp.minimum(
+            jnp.abs(omega - PlanarQuadrotor.envelope_set_hull[3, 0]),
+            jnp.abs(omega - PlanarQuadrotor.envelope_set_hull[3, 1]),
+        ),
+        jnp.minimum(
+            jnp.abs(omega - PlanarQuadrotor.envelope_set_hull[3, 0]),
+            jnp.abs(omega - PlanarQuadrotor.envelope_set_hull[3, 1]),
+        )
+    )
+    # h is the maximum of all the signed distances
+    e = jnp.maximum(e_y, jnp.maximum(e_vy, jnp.maximum(e_phi, e_omega)))
+    # print(f"e_y: {e_y}, e_vy: {e_vy}, e_phi: {e_phi}, e_omega: {e_omega}, e: {e}")
+    return e
     #################################################################################
 
 

@@ -62,8 +62,8 @@ def reference(t: float) -> np.ndarray:
     # INSTRUCTIONS: Compute the reference state for a given time
     x_bar = a * np.sin(2*np.pi*t/T)
     theta_bar = np.pi 
-    dx_bar = 0.0
-    # dx_bar =a*np.cos(2*np.pi*t/T)*2*np.pi/T
+    # dx_bar = 0.0 # without derivative tracking
+    dx_bar =a*np.cos(2*np.pi*t/T)*2*np.pi/T # with derivative tracking
     s = np.array([x_bar, theta_bar, dx_bar, 0.0])
     # END PART (d) ##############################################
     return s
