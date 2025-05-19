@@ -87,8 +87,8 @@ if __name__ == "__main__":
     A = np.array([[0.9, 0.6], [0, 0.8]])
     B = np.array([[0],[1]])
 
-    n = A.shape[0]
-    m = B.shape[0]
+    n = A.shape[1]
+    m = B.shape[1]
 
     # constraints
     N = 4
@@ -140,21 +140,20 @@ if __name__ == "__main__":
     # # # part e - MPC problem
     x0 = np.array([0, -4.5])
     T = 15
-    P = scipy.linalg.solve_continuous_lyapunov(A, Q)
-    # P = np.eye(n)
+    # P = scipy.linalg.solve_continuous_lyapunov(A, Q)
+    P = np.eye(n)
     print("P = ", P)
-
     # mpc loop
     x = np.copy(x0)
     x_mpc = np.zeros((T, N + 1, n))
     u_mpc = np.zeros((T, N, m))
     for t in range(T):
-        x_mpc[t], u_mpc[t], status = do_mpc(x, A, B.T, P, Q, R, N, rx, ru, W)
+        x_mpc[t], u_mpc[t], status = do_mpc(x, A, B, P, Q, R, N, rx, ru, W)
         if status == "infeasible":
             x_mpc = x_mpc[:t]
             u_mpc = u_mpc[:t]
             break
-        x = A @ x + B.T @ u_mpc[t, 0, :]
+        x = A @ x + B @ u_mpc[t, 0, :]
         if t == 0:
             ax.plot(x_mpc[t, :, 0], x_mpc[t, :, 1], "--*", color="k", label="MPC trajectory")
         ax.plot(x_mpc[t, :, 0], x_mpc[t, :, 1], "--*", color="k")
@@ -167,7 +166,7 @@ if __name__ == "__main__":
     #plot control
     fig, ax = plt.subplots(1, 1, figsize=(8, 4))
     
-    ax.plot(u_mpc[:, 0, 1], "-o", color='tab:orange')
+    ax.plot(u_mpc[:, 0, 0], "-o", color='tab:orange')
     # breakpoint()
     ax.set_xlabel(r"$t$")
     ax.set_ylabel(r"$u_k$")
