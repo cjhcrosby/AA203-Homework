@@ -44,6 +44,8 @@ def do_mpc(
     constraints.append(cvx.norm(x_cvx[0], "inf") <= rx) # intial state inf norm constraint
     constraints.append(cvx.norm(u_cvx[0], "inf") <= ru) # initial control inf norm constraint
     constraints.append(cvx.norm(x_cvx[-1], "inf") <= rf) # terminal state inf norm constraint
+    constraints.append(cvx.norm(x_cvx[-1], "inf") <= rx) # terminal state inf norm constraint
+
     for k in range(N): # do the sum term
         cost += cvx.quad_form(x_cvx[k], Q) + cvx.quad_form(u_cvx[k], R) # step-wise cost argument
         constraints.append(x_cvx[k + 1] == A @ x_cvx[k] + B @ u_cvx[k]) # dynamics constraint

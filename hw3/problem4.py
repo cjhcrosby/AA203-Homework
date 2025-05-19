@@ -46,6 +46,7 @@ def do_mpc(
     N: int,         # prediction horizon
     rx: float,      # initial state inf-norm constraint
     ru: float,      # initial control inf-norm constraint
+    W: np.ndarray,  # terminal state inf-norm constraint
 ) -> tuple[np.ndarray, np.ndarray, str]:
     """Solve the MPC problem starting at state `x0`."""
     n, m = Q.shape[0], R.shape[0]
@@ -59,14 +60,17 @@ def do_mpc(
     constraints = [] # initialize constraints list
     cost += cp.quad_form(x_cvx[-1], P) # terminal cost
     constraints.append(x_cvx[0] == x0) # initial condition constraint
-    constraints.append(cp.norm(x_cvx[0]) <= rx) # intial state norm constraint
-    constraints.append(cp.norm(u_cvx[0]) <= ru) # initial control norm constraint
-    constraints.append(cp.norm(x_cvx[-1]) <= rx) # terminal state norm constraint
+    constraints.append(cp.norm(x_cvx[0],2) <= rx) # intial state norm constraint
+    constraints.append(cp.norm(u_cvx[0],2) <= ru) # initial control norm constraint
+    constraints.append(cp.norm(x_cvx[-1],2) <= rx) # terminal state norm constraint
+    constraints.append(cp.quad_form(x_cvx[-1], W) <= 1) # terminal state norm constraint
+    
     for k in range(N): # do the sum term
         cost += cp.quad_form(x_cvx[k], Q) + cp.quad_form(u_cvx[k], R) # step-wise cost argument
         constraints.append(x_cvx[k + 1] == A @ x_cvx[k] + B @ u_cvx[k]) # dynamics constraint
-        constraints.append(cp.norm(x_cvx[k]) <= rx) # state norm constraint
-        constraints.append(cp.norm(u_cvx[k]) <= ru) # control norm constraint
+        constraints.append(cp.norm(x_cvx[k],2) <= rx) # state norm constraint
+        constraints.append(cp.norm(u_cvx[k],2) <= ru) # control norm constraint
+        
         
     # END PART (a) ############################################################
 
@@ -112,6 +116,7 @@ if __name__ == "__main__":
     print(M)
     print("W = inv(M):")
     print(np.linalg.inv(M))
+    W = np.linalg.inv(M)
 
     num_points = 100
     X_T = generate_ellipsoid_points(M, num_points=num_points)
@@ -136,6 +141,7 @@ if __name__ == "__main__":
     x0 = np.array([0, -4.5])
     T = 15
     P = scipy.linalg.solve_continuous_lyapunov(A, Q)
+    # P = np.eye(n)
     print("P = ", P)
 
     # mpc loop
@@ -143,7 +149,7 @@ if __name__ == "__main__":
     x_mpc = np.zeros((T, N + 1, n))
     u_mpc = np.zeros((T, N, m))
     for t in range(T):
-        x_mpc[t], u_mpc[t], status = do_mpc(x, A, B.T, P, Q, R, N, rx, ru)
+        x_mpc[t], u_mpc[t], status = do_mpc(x, A, B.T, P, Q, R, N, rx, ru, W)
         if status == "infeasible":
             x_mpc = x_mpc[:t]
             u_mpc = u_mpc[:t]
