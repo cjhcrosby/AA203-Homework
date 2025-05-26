@@ -42,8 +42,9 @@ def signed_distances(s, centers, radii):
     # PART (a): YOUR CODE BELOW ###############################################
     # INSTRUCTIONS: Compute the vector of signed distances to each obstacle.
 
-    d = NotImplementedError()
-
+    x, y, dx, dy = s
+    d = jnp.sqrt((x - centers[:, 0]) ** 2 + (y - centers[:, 1]) ** 2) - radii
+    d = d.reshape((-1, 1))
     # END PART (a) ############################################################
     return d
 
@@ -55,8 +56,8 @@ def affinize(f, s, u):
     # PART (b) ################################################################
     # INSTRUCTIONS: Use JAX to affinize `f` around `(s,u)` in two lines.
 
-    A, B = NotImplementedError()
-    c = NotImplementedError()
+    A, B = jax.jacobian(f,argnums=(0,1))(jnp.array(s),jnp.array(u))
+    c = f(s,u) - A@s - B@u
 
     # END PART (b) ############################################################
     return A, B, c
@@ -81,8 +82,18 @@ def scp_iteration(f, d, s0, s_goal, s_prev, u_prev, P, Q, R):
     # PART (e): YOUR CODE BELOW ###############################################
     # INSTRUCTIONS: Construct the convex SCP sub-problem.
 
-    objective = 0.0
+    objective = cvx.quad_form(s_cvx[-1] - s_goal, P) + cvx.sum([cvx.quad_form(s_cvx[k]-s_goal, Q) + cvx.quad_form(u_cvx[k], R) for k in range(N)])
     constraints = []
+    constraints.append(s_cvx[0] == s0)
+
+    # Dynamics constraints: k = 0, 1, ..., N-1
+    for k in range(N):
+        constraints.append(s_cvx[k + 1] == Af[k] @ s_cvx[k] + Bf[k] @ u_cvx[k] + cf[k])
+
+    # Obstacle constraints: k = 0, 1, ..., N  
+    for k in range(N + 1):
+        for j in range(Ad.shape[1]):  # loop over obstacles
+            constraints.append(Ad[k,j,0] @ s_cvx[k] + cd[k,j,0] >= 0)
 
     # END PART (e) ############################################################
 
@@ -133,6 +144,7 @@ def solve_obstacle_avoidance_scp(
     for i in range(max_iters):
         s, u, J[i + 1] = scp_iteration(f, d, s0, s_goal, s, u, P, Q, R)
         dJ = np.abs(J[i + 1] - J[i])
+        # print(dJ)
         if dJ < eps:
             converged = True
             break
@@ -162,64 +174,80 @@ centers = np.array(
 radii = np.array([0.5, 0.5])
 
 # PART (g): CHANGE THE PARAMETERS BELOW #######################################
-
 N = 5  # MPC horizon
 N_scp = 5  # maximum number of SCP iterations
 
-# END PART (g) ################################################################
+N_N_SCP_pairs = [[5,5], [2,5], [5,2], [15,2]]
+for N, N_scp in N_N_SCP_pairs:
+    # END PART (g) ################################################################
 
-f = dynamics
-d = partial(signed_distances, centers=centers, radii=radii)
-s_mpc = np.zeros((T, N + 1, n))
-u_mpc = np.zeros((T, N, m))
-s = np.copy(s0)
-total_time = time()
-total_control_cost = 0.0
-s_init = None
-u_init = None
-for t in tqdm(range(T)):
-    # PART (f): YOUR CODE BELOW ###############################################
+    f = dynamics
+    d = partial(signed_distances, centers=centers, radii=radii)
+    s_mpc = np.zeros((T, N + 1, n))
+    u_mpc = np.zeros((T, N, m))
+    s = np.copy(s0)
+    total_time = time()
+    total_control_cost = 0.0
+    s_init = None
+    u_init = None
+    for t in tqdm(range(T)):
+        # PART (f): YOUR CODE BELOW ###############################################
 
-    # Solve the MPC problem at time `t`
-    # Hint: You should call `solve_obstacle_avoidance_scp` here
-    s_mpc[t], u_mpc[t] = NotImplementedError()
+        # Solve the MPC problem at time `t`
+        # Hint: You should call `solve_obstacle_avoidance_scp` here
+        s_mpc[t], u_mpc[t] = solve_obstacle_avoidance_scp(
+            f,
+            d,
+            s0=s,
+            s_goal=s_goal,
+            N=N,
+            P=P,
+            Q=Q,
+            R=R,
+            eps=eps,
+            max_iters=N_scp,
+            s_init=s_init,
+            u_init=u_init,
+            convergence_error=False,  # Set to True to raise an error if SCP does not converge
+        )
 
-    # Push the state `s` forward in time with a closed-loop MPC input
-    # Hint: You should call `f` here
-    s = NotImplementedError()
+        # Push the state `s` forward in time with a closed-loop MPC input
+        # Hint: You should call `f` here
+        s = f(s, u_mpc[t, 0])
+        
 
-    # END PART (f) ############################################################
+        # END PART (f) ############################################################
 
-    # Accumulate the actual control cost
-    total_control_cost += u_mpc[t, 0].T @ R @ u_mpc[t, 0]
+        # Accumulate the actual control cost
+        total_control_cost += u_mpc[t, 0].T @ R @ u_mpc[t, 0]
 
-    # Use this solution to warm-start the next iteration
-    u_init = np.concatenate([u_mpc[t, 1:], u_mpc[t, -1:]])
-    s_init = np.concatenate(
-        [s_mpc[t, 1:], f(s_mpc[t, -1], u_mpc[t, -1]).reshape([1, -1])]
-    )
-total_time = time() - total_time
-print("Total elapsed time:", total_time, "seconds")
-print("Total control cost:", total_control_cost)
+        # Use this solution to warm-start the next iteration
+        u_init = np.concatenate([u_mpc[t, 1:], u_mpc[t, -1:]])
+        s_init = np.concatenate(
+            [s_mpc[t, 1:], f(s_mpc[t, -1], u_mpc[t, -1]).reshape([1, -1])]
+        )
+    total_time = time() - total_time
+    print("Total elapsed time:", total_time, "seconds")
+    print("Total control cost:", total_control_cost)
 
-fig, ax = plt.subplots(1, 2, dpi=150, figsize=(15, 5))
-fig.suptitle("$N = {}$, ".format(N) + r"$N_\mathrm{SCP} = " + "{}$".format(N_scp))
+    fig, ax = plt.subplots(1, 2, dpi=150, figsize=(15, 5))
+    fig.suptitle("$N = {}$, ".format(N) + r"$N_\mathrm{SCP} = " + "{}$".format(N_scp))
 
-for pc, rc in zip(centers, radii):
-    ax[0].add_patch(plt.Circle((pc[0], pc[1]), rc, color="r", alpha=0.3))
-for t in range(T):
-    ax[0].plot(s_mpc[t, :, 0], s_mpc[t, :, 1], "--*", color="k")
-ax[0].plot(s_mpc[:, 0, 0], s_mpc[:, 0, 1], "-o")
-ax[0].set_xlabel(r"$x(t)$")
-ax[0].set_ylabel(r"$y(t)$")
-ax[0].axis("equal")
+    for pc, rc in zip(centers, radii):
+        ax[0].add_patch(plt.Circle((pc[0], pc[1]), rc, color="r", alpha=0.3))
+    for t in range(T):
+        ax[0].plot(s_mpc[t, :, 0], s_mpc[t, :, 1], "--*", color="k")
+    ax[0].plot(s_mpc[:, 0, 0], s_mpc[:, 0, 1], "-o")
+    ax[0].set_xlabel(r"$x(t)$")
+    ax[0].set_ylabel(r"$y(t)$")
+    ax[0].axis("equal")
 
-ax[1].plot(u_mpc[:, 0, 0], "-o", label=r"$u_1(t)$")
-ax[1].plot(u_mpc[:, 0, 1], "-o", label=r"$u_2(t)$")
-ax[1].set_xlabel(r"$t$")
-ax[1].set_ylabel(r"$u(t)$")
-ax[1].legend()
+    ax[1].plot(u_mpc[:, 0, 0], "-o", label=r"$u_1(t)$")
+    ax[1].plot(u_mpc[:, 0, 1], "-o", label=r"$u_2(t)$")
+    ax[1].set_xlabel(r"$t$")
+    ax[1].set_ylabel(r"$u(t)$")
+    ax[1].legend()
 
-suffix = "_N={}_Nscp={}".format(N, N_scp)
-plt.savefig("soln_obstacle_avoidance" + suffix + ".png", bbox_inches="tight")
-plt.show()
+    suffix = "_N={}_Nscp={}".format(N, N_scp)
+    plt.savefig("soln_obstacle_avoidance" + suffix + ".png", bbox_inches="tight")
+    plt.show()

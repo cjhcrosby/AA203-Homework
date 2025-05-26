@@ -82,6 +82,17 @@ for k in tqdm(range(1, num_epochs + 1)):
     # ####################### PART (a): YOUR CODE BELOW #######################
 
     # INSTRUCTIONS: Update `Q` using Q-learning.
+    for i in shuffled_indices:
+        s_t = int(log["s"][i])  # Get state s_t at index i
+        a_t = int(log["a"][i])  # Get action a_t at index i
+        r_t = log["r"][i]       # Get reward r_t at index i
+        s_next = int(log["s"][i + 1]) # get next state after taking action a_t
+
+        a_idx = np.where(A == a_t)[0][0] # Get index of action a_t
+        s_idx = np.where(S == s_t)[0][0] # Get index of state s_t
+        s_next_idx = np.where(S == s_next)[0][0] # Get index of next state s_next
+        Q[s_idx, a_idx] += α * (r_t + γ * np.max(Q[s_next_idx, :]) - Q[s_idx, a_idx])
+    
 
     # ############################# END PART (a) ##############################
 
@@ -101,6 +112,15 @@ for k in tqdm(range(max_iters)):
     # ####################### PART (b): YOUR CODE BELOW #######################
 
     # INSTRUCTIONS: Update `Q_vi` using value iteration.
+    for s_idx, s_t in enumerate(S):         # Loop over states
+        for a_idx, a_t in enumerate(A):     # Loop over possible actions in each state
+            expected_value = 0.0            
+            for d_idx, d_t in enumerate(D): # Loop over possible demands for each pair
+                s_next = transition(s_t, a_t, d_t)  # Next state based on intern's transition function
+                r_t = reward(s_t, a_t, d_t)         # Reward based on intern's reward function
+                expected_value += P[d_idx] * (r_t + γ * np.max(Q_vi[S == s_next])) # Expected value of taking action a_t in state s_t weighted by demand probability 
+
+            Q_vi[s_idx, a_idx] = expected_value # Store expected value to pair
 
     # ############################# END PART (b) ##############################
 
@@ -150,11 +170,31 @@ plt.show()
 
 T = 5 * 365
 
-# TODO: replace the next four lines with your code
-a_opt_ql = np.zeros(S.size)
+# Optimal policy is the action at the index of the action that maximizes Q-value
+a_opt_ql = A[np.argmax(Q, axis=1)]
+a_opt_vi = A[np.argmax(Q_vi, axis=1)] 
+
 profit_ql = np.zeros(T)
-a_opt_vi = np.zeros(S.size)
 profit_vi = np.zeros(T)
+
+s_0 = rng.choice(S)  # Randomly choose an initial state for both policies tp simulate
+s_t_ql = s_0
+s_t_vi = s_0
+for t in tqdm(range(T-1)):
+    d_ql = rng.choice(D, p=P)  
+    d_vi = rng.choice(D, p=P)  
+    # Action selections
+    a_t_ql = a_opt_ql[s_t_ql]  
+    a_t_vi = a_opt_vi[s_t_vi]  
+    # Profit updates
+    profit_ql[t+1] = profit_ql[t] + reward(s_t_ql, a_t_ql, d_ql)  
+    profit_vi[t+1] = profit_vi[t] + reward(s_t_vi, a_t_vi, d_vi)  
+    # State updates
+    s_t_ql = transition(s_t_ql, a_t_ql, d_ql)  
+    s_t_vi = transition(s_t_vi, a_t_vi, d_vi)  
+
+
+
 
 # ############################### END PART (c) ################################
 
