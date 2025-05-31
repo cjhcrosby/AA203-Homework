@@ -208,14 +208,12 @@ for N, N_scp in N_N_SCP_pairs:
             max_iters=N_scp,
             s_init=s_init,
             u_init=u_init,
-            convergence_error=False,  # Set to True to raise an error if SCP does not converge
+            convergence_error=False,  
         )
-
         # Push the state `s` forward in time with a closed-loop MPC input
         # Hint: You should call `f` here
         s = f(s, u_mpc[t, 0])
         
-
         # END PART (f) ############################################################
 
         # Accumulate the actual control cost

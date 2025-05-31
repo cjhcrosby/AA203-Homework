@@ -60,17 +60,39 @@ class ReinforceAgent(Agent):
         ###
         ### Please see the following docs for support:
         ###     torch.stack: https://docs.pytorch.org/docs/stable/generated/torch.stack.html
+        𝛄 = 0.95  # discount factor
+        
+        log_probs = torch.stack(log_probs)
+        rewards = torch.tensor(rewards, dtype=torch.float)
 
         # 1) Naive REINFORCE
-
+        # total_return = sum(𝛄 ** t * rewards[t] for t in range(len(rewards)))
+        # loss = -torch.sum(log_probs * total_return)
         # 2) REINFORCE with causality trick
-
+        # returns = torch.zeros_like(rewards)
+        # G = 0
+        # for t in reversed(range(len(rewards))):
+        #     G = rewards[t] + 𝛄 * G 
+        #     returns[t] = G         
+        # loss = -torch.sum(log_probs * returns)
         # 3) REINFORCE with causality trick and baseline to "center" the returns
-        loss = None
+
+        returns = torch.zeros_like(rewards)
+        G = 0
+        b = rewards.mean()
+        for t in reversed(range(len(rewards))):
+            G = rewards[t] + 𝛄 * G 
+            returns[t] = G
+        # b = returns.mean()
+        # b = rewards.sum().mean()
+        centered_returns = returns - b
+        loss = -torch.sum(log_probs * centered_returns)   
+
         ###########################################################################
 
         self.optimizer.zero_grad()
         loss.backward()
+        # torch.nn.utils.clip_grad_value_(self.policy_network.parameters(), 100)  # same gradient clipping as in Q-learning
         self.optimizer.step()
     
     @staticmethod
@@ -79,6 +101,10 @@ class ReinforceAgent(Agent):
 
         plt.figure()
         plt.plot(reward_history)
+        # plot moving average reward
+        window_size = 20
+        moving_avg = np.convolve(reward_history, np.ones(window_size)/window_size, mode='valid')
+        plt.plot(range(window_size - 1, len(reward_history)), moving_avg, color='orange', label='Moving Average')
         plt.xlabel('Episode')
         plt.ylabel('Total Reward')
         plt.title('Training Reward Curve')

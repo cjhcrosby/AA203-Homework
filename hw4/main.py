@@ -6,7 +6,10 @@ from agents.ReinforceAgent import ReinforceAgent
 import argparse, torch, datetime
     
 def main(args: argparse.Namespace) -> None:
-    env = gym.make(args.env_name, render_mode="human")
+    if args.visualization:
+        env = gym.make(args.env_name, render_mode="human")
+    else:
+        env = gym.make(args.env_name)
 
     if args.agent_name == "basic":
         agent = Basic(state_dim=args.state_dim, action_dim=args.action_dim)
